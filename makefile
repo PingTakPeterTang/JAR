@@ -7,5 +7,5 @@ OBJ = demo.o jar_utils.o jar_sim.o
 	$(CC) -c -o $@ $< $(CFLAGS)
 
 demo: $(OBJ)
-	$(CC) -o $@ $^ $(CFLAGS)
+	$(CC) -o $@ $^ $(CFLAGS) -lm
 
