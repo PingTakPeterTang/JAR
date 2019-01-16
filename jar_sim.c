@@ -142,7 +142,7 @@ if using logical operation)
    return z;
 }
 
-UniJAR jar_dotprod( int n, UniJAR x[], UniJAR y[] ) {
+UniJAR jar_dotprod( const int n, const UniJAR* x, const UniJAR* y ) {
 /* 
 compute n-length dotprod in JAR. In particular, inputs x[], y[] and output are LogPS80 
 but accumulation of products are done in linear domain. The additions of LogPS80 quantities
@@ -161,6 +161,77 @@ are not necessarily exact.
    }
    z = LinFP32_2_LogPS80( z );
    return z;
+}
+
+
+void jar_matvecmul( const int M, const int K, const UniJAR* A, const UniJAR* b, UniJAR* c ) {
+/* 
+compute matrix-vector product in JAR. In particular, inputs A[][], b[] and output c[] are LogPS80 
+but accumulation of products are done in linear domain. The additions of LogPS80 quantities
+and also accumulation of LinFP32 numbers are exact; but conversion between the two domains
+are not necessarily exact. Matrix A is in col-major format. 
+*/
+  UniJAR w;
+  int    m, k;
+
+  assert (M >= 0);
+  assert (K >= 0);
+
+  /* let's set result to JAR_ZERO */
+  for (m=0; m<M; ++m) {
+    c[m].I = JAR_ZERO;
+  }
+
+  /* let's perform a matrix vector multiplication */ 
+  for (k=0; k<K; ++k) {
+    for (m=0; m<M; ++m) {
+      w = LogPS80_2_LinFP32(
+               sum2_LogPS80( A[(k*M)+m], b[k] ) );
+      c[m].F += w.F;
+    }
+  }
+
+  /* let convert to LogPS80 after accumulation */
+  for (m=0; m<M; ++m) {
+    c[m] = LinFP32_2_LogPS80( c[m] );
+  }
+}
+
+
+void jar_matmul( const int M, const int N, const int K, const UniJAR* A, const UniJAR* B, UniJAR* C ) {
+/* 
+compute matrix-vector product in JAR. In particular, inputs A[][], B[][] and output C[][] are LogPS80 
+but accumulation of products are done in linear domain. The additions of LogPS80 quantities
+and also accumulation of LinFP32 numbers are exact; but conversion between the two domains
+are not necessarily exact. All matrices are in col-major format. 
+*/
+  UniJAR w;
+  int    m, n, k;
+
+  assert (M >= 0);
+  assert (M >= 0);
+  assert (K >= 0);
+
+  /* let's set result to JAR_ZERO */
+  for (m=0; m<M*N; ++m) {
+    C[m].I = JAR_ZERO;
+  }
+
+  /* let's perform a matrix vector multiplication */ 
+  for (k=0; k<K; ++k) {
+    for (n=0; n<N; ++n) {
+      for (m=0; m<M; ++m) {
+        w = LogPS80_2_LinFP32(
+                 sum2_LogPS80( A[(k*M)+m], B[(n*K)+k] ) );
+        C[(n*M)+m].F += w.F;
+      }
+    }
+  }
+
+  /* let convert to LogPS80 after accumulation */
+  for (m=0; m<M*N; ++m) {
+    C[m] = LinFP32_2_LogPS80( C[m] );
+  }
 }
 
 
