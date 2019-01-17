@@ -17,6 +17,36 @@ float float_dotprod( const int K, float* a, float* b ) {
   return res;
 }
 
+void float_matvecmul( const int M, const int K, float* A, float* b, float* c ) {
+  int m, k;
+
+  for ( m=0 ; m<M; ++m ) {
+    c[m] = 0.0f;
+  }
+
+  for ( k=0; k<K; ++k ) {
+    for ( m=0; m<M; ++m ) {
+      c[m] += A[(k*M)+m] * b[k];
+    }
+  }
+}
+
+void float_matmul( const int M, const int N, const int K, float* A, float* B, float* C ) {
+  int m, n, k;
+
+  for ( m=0 ; m<M*N; ++m ) {
+    C[m] = 0.0f;
+  }
+
+  for ( k=0; k<K; ++k ) {
+    for ( n=0; n<N; ++n ) {
+      for ( m=0; m<M; ++m ) {
+        C[(n*M)+m] += A[(k*M)+m] * B[(n*K)+k];
+      }
+    }
+  }   
+}
+
 void init_float( float* f, const int size, const float val_lo, const float width ) {
   int i;
 
@@ -39,8 +69,23 @@ void init_JAR_update_float( UniJAR* j, float* f, const int size ) {
     x.F  = LogPS80_2_Lin_val( j[i] );
     f[i] = x.F;
   }
-} 
+}
 
+void compute_norms( const int size, UniJAR* j, float* f, float* l1_jar, float* l1_f, float* lmax ) {
+  int m;
+
+  *l1_jar = 0.0f;
+  *l1_f = 0.0f;
+  *lmax = 0.0f;
+
+  for ( m=0 ; m<size; ++m ) {
+    float j_f = LogPS80_2_Lin_val( j[m] );
+    *l1_jar += j_f;
+    *l1_f   += f[m];
+    *lmax = ( *lmax > fabs( j_f - f[m] ) ) ? *lmax : fabs( j_f - f[m] );
+  }
+} 
+ 
 void test_rt( const int size ) {
   UniJAR* a = (UniJAR*) malloc( size*sizeof(UniJAR) );
   float* f_a = (float*) malloc( size*sizeof(float) );
@@ -128,11 +173,91 @@ void test_dotprod( const int size ) {
 }
 
 void test_matvecmul( const int M, const int K ) {
+  UniJAR* A = (UniJAR*) malloc( M*K*sizeof(UniJAR) );
+  UniJAR* b = (UniJAR*) malloc( K*sizeof(UniJAR) );
+  UniJAR* c = (UniJAR*) malloc( M*sizeof(UniJAR) );
+  float* f_A = (float*) malloc( M*K*sizeof(float) );
+  float* f_b = (float*) malloc( K*sizeof(float) );
+  float* f_c = (float*) malloc( M*sizeof(float) );
+  float width = (float)VAL_hi - (float)VAL_lo;
+  float lmax = 0.0f;
+  float l1_f = 0.0f;
+  float l1_jar = 0.0f; 
 
+  printf("Test: we perform a matrix vector product using JAR and compare it with  \n");
+  printf("   the matrix vector product of the accurate linear domain value of the input data \n");
+
+  init_float( f_A, M*K, (float)VAL_lo, width );
+  init_float( f_b, K, (float)VAL_lo, width );
+  init_float( f_c, M, (float)VAL_lo, width );
+
+  init_JAR_update_float( A, f_A, M*K );
+  init_JAR_update_float( b, f_b, K );
+  init_JAR_update_float( c, f_c, M );
+  
+  /* running JAR matvecmul */
+  jar_matvecmul( M, K, A, b, c );
+
+  /* running fp32 matvecmul */
+  float_matvecmul( M, K, f_A, f_b, f_c );
+
+  /* computing norms */
+  compute_norms( M, c, f_c, &l1_jar, &l1_f, &lmax ); 
+
+  printf("Accurate LinFP32 of the resulting logarithmic domain 1-norm in JAR vecmatmul is %10.6e\n", l1_jar);
+  printf("matvecmul in FP32 arithmetic 1-norm                                          is %10.6e\n", l1_f);
+  printf("Max norm of error                                                            is %10.6e\n", lmax);
+
+  free( f_c );
+  free( f_b );
+  free( f_A );
+  free( c );
+  free( b );
+  free( A );
 }
 
 void test_matmul( const int M, const int N, const int K ) {
+  UniJAR* A = (UniJAR*) malloc( M*K*sizeof(UniJAR) );
+  UniJAR* B = (UniJAR*) malloc( K*N*sizeof(UniJAR) );
+  UniJAR* C = (UniJAR*) malloc( M*N*sizeof(UniJAR) );
+  float* f_A = (float*) malloc( M*K*sizeof(float) );
+  float* f_B = (float*) malloc( K*N*sizeof(float) );
+  float* f_C = (float*) malloc( M*N*sizeof(float) );
+  float width = (float)VAL_hi - (float)VAL_lo;
+  float lmax = 0.0f;
+  float l1_f = 0.0f;
+  float l1_jar = 0.0f; 
 
+  printf("Test: we perform a matrix matrix product using JAR and compare it with  \n");
+  printf("   the matrix matrix product of the accurate linear domain value of the input data \n");
+
+  init_float( f_A, M*K, (float)VAL_lo, width );
+  init_float( f_B, K*N, (float)VAL_lo, width );
+  init_float( f_C, M*N, (float)VAL_lo, width );
+
+  init_JAR_update_float( A, f_A, M*K );
+  init_JAR_update_float( B, f_B, K*K );
+  init_JAR_update_float( C, f_C, M*N );
+  
+  /* running JAR matmul */
+  jar_matmul( M, N, K, A, B, C );
+
+  /* running fp32 matmul */
+  float_matmul( M, N, K, f_A, f_B, f_C );
+
+  /* computing norms */
+  compute_norms( M*N, C, f_C, &l1_jar, &l1_f, &lmax ); 
+
+  printf("Accurate LinFP32 of the resulting logarithmic domain 1-norm in JAR matmul is %10.6e\n", l1_jar);
+  printf("matmul in FP32 arithmetic 1-norm                                          is %10.6e\n", l1_f);
+  printf("Max norm of error                                                         is %10.6e\n", lmax);
+
+  free( f_C );
+  free( f_B );
+  free( f_A );
+  free( C );
+  free( B );
+  free( A );
 }
 
 void print_help() {
