@@ -142,6 +142,15 @@ if using logical operation)
    return z;
 }
 
+void jar_fma( const UniJAR* a, const UniJAR* b, UniJAR* c ) {
+  UniJAR w;
+  
+  w = LogPS80_2_LinFP32( sum2_LogPS80( *a, *b ) );
+  
+  (*c).F += w.F;
+}
+
+
 UniJAR jar_dotprod( const int n, const UniJAR* x, const UniJAR* y ) {
 /* 
 compute n-length dotprod in JAR. In particular, inputs x[], y[] and output are LogPS80 
@@ -149,15 +158,22 @@ but accumulation of products are done in linear domain. The additions of LogPS80
 and also accumulation of LinFP32 numbers are exact; but conversion between the two domains
 are not necessarily exact.
 */
-   UniJAR w, z;
+#if 0
+   UniJAR w;
+#endif
+   UniJAR z;
    int    i;
 
    assert (n >= 0);
    z.I = JAR_ZERO;
    for (i=0; i<n; i++) {
-       w = LogPS80_2_LinFP32(
-                sum2_LogPS80( x[i], y[i] ) );
-       z.F += w.F;
+#if  1
+     jar_fma( x+i, y+i, &z );
+#else
+     w = LogPS80_2_LinFP32(
+           sum2_LogPS80( x[i], y[i] ) );
+     z.F += w.F;
+#endif
    }
    z = LinFP32_2_LogPS80( z );
    return z;
@@ -171,7 +187,9 @@ but accumulation of products are done in linear domain. The additions of LogPS80
 and also accumulation of LinFP32 numbers are exact; but conversion between the two domains
 are not necessarily exact. Matrix A is in col-major format. 
 */
+#if 0
   UniJAR w;
+#endif
   int    m, k;
 
   assert (M >= 0);
@@ -185,9 +203,13 @@ are not necessarily exact. Matrix A is in col-major format.
   /* let's perform a matrix vector multiplication */ 
   for (k=0; k<K; ++k) {
     for (m=0; m<M; ++m) {
+#if 1
+      jar_fma( A+(k*M)+m, b+k, c+m );
+#else
       w = LogPS80_2_LinFP32(
                sum2_LogPS80( A[(k*M)+m], b[k] ) );
       c[m].F += w.F;
+#endif
     }
   }
 
@@ -205,7 +227,9 @@ but accumulation of products are done in linear domain. The additions of LogPS80
 and also accumulation of LinFP32 numbers are exact; but conversion between the two domains
 are not necessarily exact. All matrices are in col-major format. 
 */
+#if 0
   UniJAR w;
+#endif
   int    m, n, k;
 
   assert (M >= 0);
@@ -221,9 +245,13 @@ are not necessarily exact. All matrices are in col-major format.
   for (k=0; k<K; ++k) {
     for (n=0; n<N; ++n) {
       for (m=0; m<M; ++m) {
+#if 1
+        jar_fma( A+(k*M)+m, B+(n*K)+k, C+(n*M)+m );
+#else
         w = LogPS80_2_LinFP32(
                  sum2_LogPS80( A[(k*M)+m], B[(n*K)+k] ) );
         C[(n*M)+m].F += w.F;
+#endif
       }
     }
   }
@@ -233,7 +261,6 @@ are not necessarily exact. All matrices are in col-major format.
     C[m] = LinFP32_2_LogPS80( C[m] );
   }
 }
-
 
 
 
