@@ -150,6 +150,50 @@ void jar_fma( const UniJAR* a, const UniJAR* b, UniJAR* c ) {
   (*c).F += w.F;
 }
 
+#if defined(__AVX512F__)
+__m512i jar_fma_avx512( const __m512i a, const __m512i b, const __m512i c ) {
+#if 0
+  __m512i y;
+
+  UniJAR tmpa[16];
+  UniJAR tmpb[16];
+  UniJAR tmpc[16];
+  int i;
+
+  _mm512_storeu_epi32( tmpa, a );
+  _mm512_storeu_epi32( tmpb, b );
+  _mm512_storeu_epi32( tmpc, c );
+
+  for ( i = 0; i < 16; i++ ) {
+    jar_fma( tmpa+i, tmpb+i, tmpc+i );
+  }
+
+  y = _mm512_loadu_epi32( tmpc );
+#else
+  __m512i sign_z;
+  __m512i z;
+  __m512i i;
+  __m512i y;
+  __m512i x;
+
+  /* "sum2_LogPS80 function */
+  sign_z = _mm512_add_epi32( _mm512_and_epi32( a, _mm512_set1_epi32( SIGN_MASK ) ), _mm512_and_epi32( b, _mm512_set1_epi32( SIGN_MASK ) ) );
+  z = _mm512_add_epi32( _mm512_add_epi32( a, b ), _mm512_set1_epi32( 0X40800000 ) );
+  z = _mm512_or_epi32( _mm512_and_epi32( z, _mm512_set1_epi32( CLEAR_SIGN ) ), sign_z );
+
+  /* "LogPS80_2_LinFP32" function */
+  x = z;
+  i = _mm512_srai_epi32( _mm512_and_epi32( x, _mm512_set1_epi32( FRAC_MASK ) ), EXP2_IND_SHIFT );
+  z = _mm512_i32gather_epi32( i, exp2_tbl, 4 );
+  y = _mm512_and_epi32( x, _mm512_set1_epi32( CLEAR_FRAC ) );
+  y = _mm512_or_epi32( y, z );
+
+  /* let's do fp32 add to c of y */
+  y = _mm512_castps_si512( _mm512_add_ps( _mm512_castsi512_ps(c), _mm512_castsi512_ps(y) ) );
+#endif
+  return y; 
+}
+#endif
 
 UniJAR jar_dotprod( const int n, const UniJAR* x, const UniJAR* y ) {
 /* 
@@ -200,18 +244,62 @@ are not necessarily exact. Matrix A is in col-major format.
     c[m].I = JAR_ZERO;
   }
 
-  /* let's perform a matrix vector multiplication */ 
+  /* let's perform a matrix vector multiplication */
   for (k=0; k<K; ++k) {
-    for (m=0; m<M; ++m) {
-#if 1
+    for ( m=0; m<M ; ++m ) {
       jar_fma( A+(k*M)+m, b+k, c+m );
-#else
-      w = LogPS80_2_LinFP32(
-               sum2_LogPS80( A[(k*M)+m], b[k] ) );
-      c[m].F += w.F;
-#endif
     }
   }
+
+  /* let convert to LogPS80 after accumulation */
+  for (m=0; m<M; ++m) {
+    c[m] = LinFP32_2_LogPS80( c[m] );
+  }
+}
+
+void jar_matvecmul_avx512( const int M, const int K, const UniJAR* A, const UniJAR* b, UniJAR* c ) {
+/* 
+compute matrix-vector product in JAR. In particular, inputs A[][], b[] and output c[] are LogPS80 
+but accumulation of products are done in linear domain. The additions of LogPS80 quantities
+and also accumulation of LinFP32 numbers are exact; but conversion between the two domains
+are not necessarily exact. Matrix A is in col-major format. 
+*/
+#if 0
+  UniJAR w;
+#endif
+  int    m, k;
+
+  assert (M >= 0);
+  assert (K >= 0);
+
+  /* let's set result to JAR_ZERO */
+  for (m=0; m<M; ++m) {
+    c[m].I = JAR_ZERO;
+  }
+
+  /* let's perform a matrix vector multiplication */
+#if defined(__AVX512F__)
+  for (m=0; m<(M/16)*16; m+=16) {
+    __m512i vc = _mm512_loadu_epi32( c+m );
+    for (k=0; k<K; ++k) {
+      __m512i va = _mm512_loadu_epi32( A+(k*M)+m );
+      __m512i vb = _mm512_set1_epi32( b[k].I );
+      vc = jar_fma_avx512( va, vb, vc );
+    }
+    _mm512_storeu_epi32( c+m, vc );
+  }
+  for (   ; m<M        ; ++m ) {
+    for (k=0; k<K; ++k) {
+      jar_fma( A+(k*M)+m, b+k, c+m );
+    }
+  }
+#else
+  for (k=0; k<K; ++k) {
+    for ( m=0; m<M ; ++m ) {
+      jar_fma( A+(k*M)+m, b+k, c+m );
+    }
+  }
+#endif
 
   /* let convert to LogPS80 after accumulation */
   for (m=0; m<M; ++m) {
@@ -263,8 +351,6 @@ are not necessarily exact. All matrices are in col-major format.
 }
 
 
-
-
 UniJAR exp2_tbl[64] = {
 0X00000000,0X00000000,0X00040000,0X00040000,
 0X00040000,0X00080000,0X00080000,0X000C0000,
@@ -283,6 +369,7 @@ UniJAR exp2_tbl[64] = {
 0X006C0000,0X006C0000,0X00700000,0X00740000,
 0X00740000,0X00780000,0X007C0000,0X007C0000
 };
+
 
 UniJAR log2_tbl[32] = {
 0X00000000,0X00060000,0X000B0000,0X00110000,

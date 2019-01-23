@@ -68,6 +68,11 @@ void jar_matmul( const int M, const int N, const int K, const UniJAR* A, const U
 extern UniJAR exp2_tbl[64];
 extern UniJAR log2_tbl[32];
 
+#if defined(__AVX512F__)
+#include <immintrin.h>
+__m512i jar_fma_avx512( const __m512i a, const __m512i b, const __m512i c );
+#endif
+
 #endif
 
 
