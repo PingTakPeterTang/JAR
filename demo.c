@@ -229,7 +229,8 @@ void test_matvecmul( const int M, const int K ) {
 void test_matmul( const int M, const int N, const int K ) {
   UniJAR* A = (UniJAR*) malloc( M*K*sizeof(UniJAR) );
   UniJAR* B = (UniJAR*) malloc( K*N*sizeof(UniJAR) );
-  UniJAR* C = (UniJAR*) malloc( M*N*sizeof(UniJAR) );
+  UniJAR* C1 = (UniJAR*) malloc( M*N*sizeof(UniJAR) );
+  UniJAR* C2 = (UniJAR*) malloc( M*N*sizeof(UniJAR) );
   float* f_A = (float*) malloc( M*K*sizeof(float) );
   float* f_B = (float*) malloc( K*N*sizeof(float) );
   float* f_C = (float*) malloc( M*N*sizeof(float) );
@@ -247,17 +248,25 @@ void test_matmul( const int M, const int N, const int K ) {
 
   init_JAR_update_float( A, f_A, M*K );
   init_JAR_update_float( B, f_B, K*K );
-  init_JAR_update_float( C, f_C, M*N );
+  init_JAR_update_float( C1, f_C, M*N );
+  init_JAR_update_float( C2, f_C, M*N );
   
   /* running JAR matmul */
-  jar_matmul( M, N, K, A, B, C );
+  jar_matmul( M, N, K, A, B, C1 );
+  jar_matmul_avx512( M, N, K, A, B, C2 );
 
   /* running fp32 matmul */
   float_matmul( M, N, K, f_A, f_B, f_C );
 
   /* computing norms */
-  compute_norms( M*N, C, f_C, &l1_jar, &l1_f, &lmax ); 
+  compute_norms( M*N, C1, f_C, &l1_jar, &l1_f, &lmax ); 
+  printf("scalar code\n");
+  printf("Accurate LinFP32 of the resulting logarithmic domain 1-norm in JAR matmul is %10.6e\n", l1_jar);
+  printf("matmul in FP32 arithmetic 1-norm                                          is %10.6e\n", l1_f);
+  printf("Max norm of error                                                         is %10.6e\n", lmax);
 
+  compute_norms( M*N, C2, f_C, &l1_jar, &l1_f, &lmax ); 
+  printf("vector code\n");
   printf("Accurate LinFP32 of the resulting logarithmic domain 1-norm in JAR matmul is %10.6e\n", l1_jar);
   printf("matmul in FP32 arithmetic 1-norm                                          is %10.6e\n", l1_f);
   printf("Max norm of error                                                         is %10.6e\n", lmax);
@@ -265,7 +274,8 @@ void test_matmul( const int M, const int N, const int K ) {
   free( f_C );
   free( f_B );
   free( f_A );
-  free( C );
+  free( C1 );
+  free( C2 );
   free( B );
   free( A );
 }

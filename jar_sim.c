@@ -329,7 +329,7 @@ are not necessarily exact. All matrices are in col-major format.
     C[m].I = JAR_ZERO;
   }
 
-  /* let's perform a matrix vector multiplication */ 
+  /* let's perform a matrix matrix multiplication */ 
   for (k=0; k<K; ++k) {
     for (n=0; n<N; ++n) {
       for (m=0; m<M; ++m) {
@@ -343,6 +343,108 @@ are not necessarily exact. All matrices are in col-major format.
       }
     }
   }
+
+  /* let convert to LogPS80 after accumulation */
+  for (m=0; m<M*N; ++m) {
+    C[m] = LinFP32_2_LogPS80( C[m] );
+  }
+}
+
+
+void jar_matmul_avx512( const int M, const int N, const int K, const UniJAR* A, const UniJAR* B, UniJAR* C ) {
+/* 
+compute matrix-vector product in JAR. In particular, inputs A[][], B[][] and output C[][] are LogPS80 
+but accumulation of products are done in linear domain. The additions of LogPS80 quantities
+and also accumulation of LinFP32 numbers are exact; but conversion between the two domains
+are not necessarily exact. All matrices are in col-major format. 
+*/
+#if 0
+  UniJAR w;
+#endif
+  int    m, n, k;
+
+  assert (M >= 0);
+  assert (M >= 0);
+  assert (K >= 0);
+
+  /* let's set result to JAR_ZERO */
+  for (m=0; m<M*N; ++m) {
+    C[m].I = JAR_ZERO;
+  }
+
+#if defined(__AVX512F__)
+  /* let's perform a matrix matrix multiplication */
+  for ( m=0; m<(M/16)*16; m+=16 ) {
+    for ( n=0; n<(N/8)*8; n+=8 ) {
+      __m512i vc0 = _mm512_loadu_epi32( C+((n+0)*M)+m );
+      __m512i vc1 = _mm512_loadu_epi32( C+((n+1)*M)+m );
+      __m512i vc2 = _mm512_loadu_epi32( C+((n+2)*M)+m );
+      __m512i vc3 = _mm512_loadu_epi32( C+((n+3)*M)+m );
+      __m512i vc4 = _mm512_loadu_epi32( C+((n+4)*M)+m );
+      __m512i vc5 = _mm512_loadu_epi32( C+((n+5)*M)+m );
+      __m512i vc6 = _mm512_loadu_epi32( C+((n+6)*M)+m );
+      __m512i vc7 = _mm512_loadu_epi32( C+((n+7)*M)+m );
+      for (k=0; k<K; ++k) {
+        __m512i va  = _mm512_loadu_epi32( A+(k*M)+m );
+        __m512i vb0 = _mm512_set1_epi32( B[((n+0)*K)+k].I );
+        vc0 = jar_fma_avx512( va, vb0, vc0 );
+        __m512i vb1 = _mm512_set1_epi32( B[((n+1)*K)+k].I );
+        vc1 = jar_fma_avx512( va, vb1, vc1 );
+        __m512i vb2 = _mm512_set1_epi32( B[((n+2)*K)+k].I );
+        vc2 = jar_fma_avx512( va, vb2, vc2 );
+        __m512i vb3 = _mm512_set1_epi32( B[((n+3)*K)+k].I );
+        vc3 = jar_fma_avx512( va, vb3, vc3 );
+        __m512i vb4 = _mm512_set1_epi32( B[((n+4)*K)+k].I );
+        vc4 = jar_fma_avx512( va, vb4, vc4 );
+        __m512i vb5 = _mm512_set1_epi32( B[((n+5)*K)+k].I );
+        vc5 = jar_fma_avx512( va, vb5, vc5 );
+        __m512i vb6 = _mm512_set1_epi32( B[((n+6)*K)+k].I );
+        vc6 = jar_fma_avx512( va, vb6, vc6 );
+        __m512i vb7 = _mm512_set1_epi32( B[((n+7)*K)+k].I );
+        vc7 = jar_fma_avx512( va, vb7, vc7 );
+      }
+      _mm512_storeu_epi32( C+((n+0)*M)+m, vc0 );
+      _mm512_storeu_epi32( C+((n+1)*M)+m, vc1 );
+      _mm512_storeu_epi32( C+((n+2)*M)+m, vc2 );
+      _mm512_storeu_epi32( C+((n+3)*M)+m, vc3 );
+      _mm512_storeu_epi32( C+((n+4)*M)+m, vc4 );
+      _mm512_storeu_epi32( C+((n+5)*M)+m, vc5 );
+      _mm512_storeu_epi32( C+((n+6)*M)+m, vc6 );
+      _mm512_storeu_epi32( C+((n+7)*M)+m, vc7 );
+    }
+    for (    ; n<N ; ++n ) {
+      __m512i vc0 = _mm512_loadu_epi32( C+((n+0)*M)+m );
+      for (k=0; k<K; ++k) {
+        __m512i va  = _mm512_loadu_epi32( A+(k*M)+m );
+        __m512i vb0 = _mm512_set1_epi32( B[((n+0)*K)+k].I );
+        vc0 = jar_fma_avx512( va, vb0, vc0 );
+      }
+      _mm512_storeu_epi32( C+((n+0)*M)+m, vc0 );
+    }
+  }
+  for (k=0; k<K; ++k) {
+    for (n=0; n<N; ++n) {
+      for ( ; m<M; ++m) {
+        jar_fma( A+(k*M)+m, B+(n*K)+k, C+(n*M)+m );
+      }
+    }
+  }
+#else
+  /* let's perform a matrix matrix multiplication */ 
+  for (k=0; k<K; ++k) {
+    for (n=0; n<N; ++n) {
+      for (m=0; m<M; ++m) {
+#if 1
+        jar_fma( A+(k*M)+m, B+(n*K)+k, C+(n*M)+m );
+#else
+        w = LogPS80_2_LinFP32(
+                 sum2_LogPS80( A[(k*M)+m], B[(n*K)+k] ) );
+        C[(n*M)+m].F += w.F;
+#endif
+      }
+    }
+  }
+#endif
 
   /* let convert to LogPS80 after accumulation */
   for (m=0; m<M*N; ++m) {

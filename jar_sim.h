@@ -63,14 +63,16 @@ UniJAR LogPS80_2_LinFP32( UniJAR x );
 UniJAR sum2_LogPS80( UniJAR x, UniJAR y );
 UniJAR jar_dotprod( const int n, const UniJAR* x, const UniJAR* y );
 void jar_matvecmul( const int M, const int K, const UniJAR* A, const UniJAR* b, UniJAR* c );
+void jar_matvecmul_avx512( const int M, const int K, const UniJAR* A, const UniJAR* b, UniJAR* c );
 void jar_matmul( const int M, const int N, const int K, const UniJAR* A, const UniJAR* B, UniJAR* C );
+void jar_matmul_avx512( const int M, const int N, const int K, const UniJAR* A, const UniJAR* B, UniJAR* C );
 
 extern UniJAR exp2_tbl[64];
 extern UniJAR log2_tbl[32];
 
 #if defined(__AVX512F__)
 #include <immintrin.h>
-__m512i jar_fma_avx512( const __m512i a, const __m512i b, const __m512i c );
+inline __m512i jar_fma_avx512( const __m512i a, const __m512i b, const __m512i c );
 #endif
 
 #endif
