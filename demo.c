@@ -1,10 +1,17 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
+
+#include <sys/time.h>
+
 #include "jar_sim.h"
 
 #define VAL_lo  -2.0
 #define VAL_hi   2.0
+
+inline double time_in_sec(struct timeval start, struct timeval end) {
+  return ((double)(((end.tv_sec * 1000000 + end.tv_usec) - (start.tv_sec * 1000000 + start.tv_usec)))) / 1.0e6;
+}
 
 float float_dotprod( const int K, float* a, float* b ) {
   float res = 0.0f;
@@ -237,7 +244,12 @@ void test_matmul( const int M, const int N, const int K ) {
   float width = (float)VAL_hi - (float)VAL_lo;
   float lmax = 0.0f;
   float l1_f = 0.0f;
-  float l1_jar = 0.0f; 
+  float l1_jar = 0.0f;
+  int i, reps;
+  struct timeval start;
+  struct timeval stop;
+  double time;
+  double flops = 2.0*(double)M*(double)N*(double)K;
 
   printf("Test: we perform a matrix matrix product using JAR and compare it with  \n");
   printf("   the matrix matrix product of the accurate linear domain value of the input data \n");
@@ -247,7 +259,7 @@ void test_matmul( const int M, const int N, const int K ) {
   init_float( f_C, M*N, (float)VAL_lo, width );
 
   init_JAR_update_float( A, f_A, M*K );
-  init_JAR_update_float( B, f_B, K*K );
+  init_JAR_update_float( B, f_B, K*N );
   init_JAR_update_float( C1, f_C, M*N );
   init_JAR_update_float( C2, f_C, M*N );
   
@@ -271,6 +283,16 @@ void test_matmul( const int M, const int N, const int K ) {
   printf("matmul in FP32 arithmetic 1-norm                                          is %10.6e\n", l1_f);
   printf("Max norm of error                                                         is %10.6e\n", lmax);
 
+  /* let's do some performance test */
+  reps = 10000;
+  gettimeofday(&start, NULL);
+  for ( i = 0; i < reps; ++i ) {
+    jar_matmul_avx512( M, N, K, A, B, C2 );
+  }
+  gettimeofday(&stop, NULL);
+  time = time_in_sec( start, stop )/(double)reps;
+  printf("time for GEMM M=%i, N=%i, K=%i is %f seconds, GFLOPS=%f\n", M, N, K, time, (flops/time)/1.0e9);
+  
   free( f_C );
   free( f_B );
   free( f_A );
