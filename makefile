@@ -20,7 +20,7 @@ demo: $(OBJ)
 	$(CC) -o $@ $^ $(CFLAGS) -lm
 
 %.o.avx512: %.c $(DEPS)
-	$(CCAVX512) -c -o $@ $< $(CFLAGS) -xCOMMON-AVX512
+	$(CCAVX512) -c -o $@ $< $(CFLAGS) -xCOMMON-AVX512 -fopenmp
 
 demoavx512: $(OBJAVX512)
-	$(CCAVX512) -o $@ $^ $(CFLAGS) -lm
+	$(CCAVX512) -o $@ $^ $(CFLAGS) -lm -fopenmp
