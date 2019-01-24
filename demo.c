@@ -1,8 +1,43 @@
+/******************************************************************************
+** Copyright (c) 2019, Intel Corporation                                     **
+** All rights reserved.                                                      **
+**                                                                           **
+** Redistribution and use in source and binary forms, with or without        **
+** modification, are permitted provided that the following conditions        **
+** are met:                                                                  **
+** 1. Redistributions of source code must retain the above copyright         **
+**    notice, this list of conditions and the following disclaimer.          **
+** 2. Redistributions in binary form must reproduce the above copyright      **
+**    notice, this list of conditions and the following disclaimer in the    **
+**    documentation and/or other materials provided with the distribution.   **
+** 3. Neither the name of the copyright holder nor the names of its          **
+**    contributors may be used to endorse or promote products derived        **
+**    from this software without specific prior written permission.          **
+**                                                                           **
+** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS       **
+** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT         **
+** LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR     **
+** A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT      **
+** HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,    **
+** SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED  **
+** TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR    **
+** PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF    **
+** LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING      **
+** NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS        **
+** SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.              **
+******************************************************************************/
+/* Ping Tak Peter Tang, Alexander Heinecke (Intel Corp.)
+******************************************************************************/
+
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
 
 #include <sys/time.h>
+
+#if defined(_OPENMP)
+#include <omp.h>
+#endif
 
 #include "jar_sim.h"
 
@@ -237,7 +272,11 @@ void test_matmul( const int M, const int N, const int K ) {
   UniJAR* A = (UniJAR*) malloc( M*K*sizeof(UniJAR) );
   UniJAR* B = (UniJAR*) malloc( K*N*sizeof(UniJAR) );
   UniJAR* C1 = (UniJAR*) malloc( M*N*sizeof(UniJAR) );
+#if defined(_OPENMP)
+  UniJAR* C2 = (UniJAR*) malloc( omp_get_max_threads()*M*N*sizeof(UniJAR) );
+#else
   UniJAR* C2 = (UniJAR*) malloc( M*N*sizeof(UniJAR) );
+#endif
   float* f_A = (float*) malloc( M*K*sizeof(float) );
   float* f_B = (float*) malloc( K*N*sizeof(float) );
   float* f_C = (float*) malloc( M*N*sizeof(float) );
@@ -249,7 +288,11 @@ void test_matmul( const int M, const int N, const int K ) {
   struct timeval start;
   struct timeval stop;
   double time;
+#if defined(_OPENMP)
+  double flops = 2.0*(double)M*(double)N*(double)K*(double)omp_get_max_threads();
+#else
   double flops = 2.0*(double)M*(double)N*(double)K;
+#endif
 
   printf("Test: we perform a matrix matrix product using JAR and compare it with  \n");
   printf("   the matrix matrix product of the accurate linear domain value of the input data \n");
@@ -261,8 +304,15 @@ void test_matmul( const int M, const int N, const int K ) {
   init_JAR_update_float( A, f_A, M*K );
   init_JAR_update_float( B, f_B, K*N );
   init_JAR_update_float( C1, f_C, M*N );
+#if defined(_OPENMP)
+#pragma omp parallel
+  {
+    init_JAR_update_float( C2+(omp_get_thread_num()*M*N), f_C, M*N );
+  }
+#else
   init_JAR_update_float( C2, f_C, M*N );
-  
+#endif
+
   /* running JAR matmul */
   jar_matmul( M, N, K, A, B, C1 );
   jar_matmul_avx512( M, N, K, A, B, C2 );
@@ -286,9 +336,18 @@ void test_matmul( const int M, const int N, const int K ) {
   /* let's do some performance test */
   reps = 10000;
   gettimeofday(&start, NULL);
+#if defined(_OPENMP)
+#pragma omp parallel private(i)
+  {
+    for ( i = 0; i < reps; ++i ) {
+      jar_matmul_avx512( M, N, K, A, B, C2+(omp_get_thread_num()*M*N) );
+    }
+  }
+#else
   for ( i = 0; i < reps; ++i ) {
     jar_matmul_avx512( M, N, K, A, B, C2 );
   }
+#endif
   gettimeofday(&stop, NULL);
   time = time_in_sec( start, stop )/(double)reps;
   printf("time for GEMM M=%i, N=%i, K=%i is %f seconds, GFLOPS=%f\n", M, N, K, time, (flops/time)/1.0e9);
