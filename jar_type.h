@@ -7,7 +7,7 @@
 
 #define JAR_TYPE
 typedef union{
-   unsigned long  I;
+   unsigned int   I;
    float          F;
 } UniJAR;
 

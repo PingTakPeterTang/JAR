@@ -1,10 +1,17 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
+
+#include <sys/time.h>
+
 #include "jar_sim.h"
 
 #define VAL_lo  -2.0
 #define VAL_hi   2.0
+
+inline double time_in_sec(struct timeval start, struct timeval end) {
+  return ((double)(((end.tv_sec * 1000000 + end.tv_usec) - (start.tv_sec * 1000000 + start.tv_usec)))) / 1.0e6;
+}
 
 float float_dotprod( const int K, float* a, float* b ) {
   float res = 0.0f;
@@ -175,7 +182,8 @@ void test_dotprod( const int size ) {
 void test_matvecmul( const int M, const int K ) {
   UniJAR* A = (UniJAR*) malloc( M*K*sizeof(UniJAR) );
   UniJAR* b = (UniJAR*) malloc( K*sizeof(UniJAR) );
-  UniJAR* c = (UniJAR*) malloc( M*sizeof(UniJAR) );
+  UniJAR* c1 = (UniJAR*) malloc( M*sizeof(UniJAR) );
+  UniJAR* c2 = (UniJAR*) malloc( M*sizeof(UniJAR) );
   float* f_A = (float*) malloc( M*K*sizeof(float) );
   float* f_b = (float*) malloc( K*sizeof(float) );
   float* f_c = (float*) malloc( M*sizeof(float) );
@@ -193,17 +201,25 @@ void test_matvecmul( const int M, const int K ) {
 
   init_JAR_update_float( A, f_A, M*K );
   init_JAR_update_float( b, f_b, K );
-  init_JAR_update_float( c, f_c, M );
+  init_JAR_update_float( c1, f_c, M );
+  init_JAR_update_float( c2, f_c, M );
   
   /* running JAR matvecmul */
-  jar_matvecmul( M, K, A, b, c );
+  jar_matvecmul( M, K, A, b, c1 );
+  jar_matvecmul_avx512( M, K, A, b, c2 );
 
   /* running fp32 matvecmul */
   float_matvecmul( M, K, f_A, f_b, f_c );
 
   /* computing norms */
-  compute_norms( M, c, f_c, &l1_jar, &l1_f, &lmax ); 
+  compute_norms( M, c1, f_c, &l1_jar, &l1_f, &lmax );
+  printf("scalar code\n"); 
+  printf("Accurate LinFP32 of the resulting logarithmic domain 1-norm in JAR vecmatmul is %10.6e\n", l1_jar);
+  printf("matvecmul in FP32 arithmetic 1-norm                                          is %10.6e\n", l1_f);
+  printf("Max norm of error                                                            is %10.6e\n", lmax);
 
+  compute_norms( M, c2, f_c, &l1_jar, &l1_f, &lmax ); 
+  printf("vector code\n");
   printf("Accurate LinFP32 of the resulting logarithmic domain 1-norm in JAR vecmatmul is %10.6e\n", l1_jar);
   printf("matvecmul in FP32 arithmetic 1-norm                                          is %10.6e\n", l1_f);
   printf("Max norm of error                                                            is %10.6e\n", lmax);
@@ -211,7 +227,8 @@ void test_matvecmul( const int M, const int K ) {
   free( f_c );
   free( f_b );
   free( f_A );
-  free( c );
+  free( c1 );
+  free( c2 );
   free( b );
   free( A );
 }
@@ -219,14 +236,20 @@ void test_matvecmul( const int M, const int K ) {
 void test_matmul( const int M, const int N, const int K ) {
   UniJAR* A = (UniJAR*) malloc( M*K*sizeof(UniJAR) );
   UniJAR* B = (UniJAR*) malloc( K*N*sizeof(UniJAR) );
-  UniJAR* C = (UniJAR*) malloc( M*N*sizeof(UniJAR) );
+  UniJAR* C1 = (UniJAR*) malloc( M*N*sizeof(UniJAR) );
+  UniJAR* C2 = (UniJAR*) malloc( M*N*sizeof(UniJAR) );
   float* f_A = (float*) malloc( M*K*sizeof(float) );
   float* f_B = (float*) malloc( K*N*sizeof(float) );
   float* f_C = (float*) malloc( M*N*sizeof(float) );
   float width = (float)VAL_hi - (float)VAL_lo;
   float lmax = 0.0f;
   float l1_f = 0.0f;
-  float l1_jar = 0.0f; 
+  float l1_jar = 0.0f;
+  int i, reps;
+  struct timeval start;
+  struct timeval stop;
+  double time;
+  double flops = 2.0*(double)M*(double)N*(double)K;
 
   printf("Test: we perform a matrix matrix product using JAR and compare it with  \n");
   printf("   the matrix matrix product of the accurate linear domain value of the input data \n");
@@ -236,26 +259,45 @@ void test_matmul( const int M, const int N, const int K ) {
   init_float( f_C, M*N, (float)VAL_lo, width );
 
   init_JAR_update_float( A, f_A, M*K );
-  init_JAR_update_float( B, f_B, K*K );
-  init_JAR_update_float( C, f_C, M*N );
+  init_JAR_update_float( B, f_B, K*N );
+  init_JAR_update_float( C1, f_C, M*N );
+  init_JAR_update_float( C2, f_C, M*N );
   
   /* running JAR matmul */
-  jar_matmul( M, N, K, A, B, C );
+  jar_matmul( M, N, K, A, B, C1 );
+  jar_matmul_avx512( M, N, K, A, B, C2 );
 
   /* running fp32 matmul */
   float_matmul( M, N, K, f_A, f_B, f_C );
 
   /* computing norms */
-  compute_norms( M*N, C, f_C, &l1_jar, &l1_f, &lmax ); 
-
+  compute_norms( M*N, C1, f_C, &l1_jar, &l1_f, &lmax ); 
+  printf("scalar code\n");
   printf("Accurate LinFP32 of the resulting logarithmic domain 1-norm in JAR matmul is %10.6e\n", l1_jar);
   printf("matmul in FP32 arithmetic 1-norm                                          is %10.6e\n", l1_f);
   printf("Max norm of error                                                         is %10.6e\n", lmax);
 
+  compute_norms( M*N, C2, f_C, &l1_jar, &l1_f, &lmax ); 
+  printf("vector code\n");
+  printf("Accurate LinFP32 of the resulting logarithmic domain 1-norm in JAR matmul is %10.6e\n", l1_jar);
+  printf("matmul in FP32 arithmetic 1-norm                                          is %10.6e\n", l1_f);
+  printf("Max norm of error                                                         is %10.6e\n", lmax);
+
+  /* let's do some performance test */
+  reps = 10000;
+  gettimeofday(&start, NULL);
+  for ( i = 0; i < reps; ++i ) {
+    jar_matmul_avx512( M, N, K, A, B, C2 );
+  }
+  gettimeofday(&stop, NULL);
+  time = time_in_sec( start, stop )/(double)reps;
+  printf("time for GEMM M=%i, N=%i, K=%i is %f seconds, GFLOPS=%f\n", M, N, K, time, (flops/time)/1.0e9);
+  
   free( f_C );
   free( f_B );
   free( f_A );
-  free( C );
+  free( C1 );
+  free( C2 );
   free( B );
   free( A );
 }
